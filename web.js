@@ -3,29 +3,62 @@ require.paths.unshift(__dirname + '/lib');
 var everyauth = require('everyauth');
 var express   = require('express');
 
+var MemoryStore = express.session.MemoryStore;
+var sessionStore = new MemoryStore();
+var parseCookie = require('connect').utils.parseCookie;
+var Session = require('connect').middleware.session.Session;
+
+
 var FacebookClient = require('facebook-client').FacebookClient;
-var facebook = new FacebookClient();
+global.facebook = new FacebookClient();
 
 var uuid = require('node-uuid');
+
+if(process.env.NODE_ENV == 'production'){
+    
+    /*process.env.FACEBOOK_APP_ID = '282893221758514';
+    process.env.FACEBOOK_SECRET = '310405319ad39570bc381aa7105290ae';
+    process.env.FACEBOOK_APP_URL = 'https://apps.facebook.com/memekombattwo/';*/
+    process.env.FACEBOOK_APP_ID = '175839669190836';
+    process.env.FACEBOOK_SECRET = '8a378661dd177e486956ffd27b02f4a6';
+    process.env.FACEBOOK_APP_URL = 'https://apps.facebook.com/jogo-da-ket/';
+    process.env.FACEBOOK_APP_HOME = 'https://jogo-da-ket.herokuapp.com/';
+    //process.env.CDN = 'https://d24yrm0vsffrow.cloudfront.net/';
+    process.env.CDN = process.env.FACEBOOK_APP_HOME;
+    //mongoose.connect('mongodb://admin:passlikeaboss@ds029277.mongolab.com:29277/heroku_app2171098');
+    
+    
+  }else{
+    
+    //require("v8-profiler");
+    process.env.FACEBOOK_APP_ID = '236630266417484';
+    process.env.FACEBOOK_SECRET = 'b3056774a559e31e09b8da8968f3d74c';
+    process.env.FACEBOOK_APP_URL = 'https://apps.facebook.com/jogo-da-ket-test/';
+    process.env.FACEBOOK_APP_HOME = 'http://localhost:3000/';
+    process.env.CDN = process.env.FACEBOOK_APP_HOME;
+    //mongoose.connect('mongodb://localhost/memekombat');
+    
+}
 
 // configure facebook authentication
 everyauth.facebook
   .appId(process.env.FACEBOOK_APP_ID)
   .appSecret(process.env.FACEBOOK_SECRET)
-  .scope('user_likes,user_photos,user_photo_video_tags')
+  .scope('publish_stream,publish_actions')
   .entryPath('/')
-  .redirectPath('/home')
+  .redirectPath(process.env.FACEBOOK_APP_URL)
   .findOrCreateUser(function() {
     return({});
   })
 
 // create an express webserver
-var app = express.createServer(
-  express.logger(),
+global.app = express.createServer(
+  //express.logger(),
+  express.errorHandler(),
   express.static(__dirname + '/public'),
   express.cookieParser(),
   // set this to a secret value to encrypt session cookies
-  express.session({ secret: process.env.SESSION_SECRET || 'secret123' }),
+  express.session({store: sessionStore, key: 'express.sid', secret: (process.env.SESSION_SECRET || 'secret123') }),
   // insert a middleware to set the facebook redirect hostname to http/https dynamically
   function(request, response, next) {
     var method = request.headers['x-forwarded-proto'] || 'http';
@@ -36,6 +69,10 @@ var app = express.createServer(
   require('facebook').Facebook()
 );
 
+if(process.env.NODE_ENV == 'production'){
+    app.enable('view cache');
+  }
+
 // listen to the PORT given to us in the environment
 var port = process.env.PORT || 3000;
 
@@ -43,13 +80,25 @@ app.listen(port, function() {
   console.log("Listening on " + port);
 });
 
+app.post('/', function(request, response){
+  if (request.session.auth && request.session.logged) {
+      response.redirect('/home');
+  }else{
+      var method = request.headers['x-forwarded-proto'] || 'http';
+      var host = method + '://' + request.headers.host;
+      request.session.logged = true;
+      response.send('<script type="text/javascript">top.location.href = "'+host+'";</script>');
+  }
+  //response.render('index.ejs');
+});
+
 // create a socket.io backend for sending facebook graph data
 // to the browser as we receive it
-var io = require('socket.io').listen(app);
+global.io = require('socket.io').listen(app);
 
 // wrap socket.io with basic identification and message queueing
 // code is in lib/socket_manager.js
-var socket_manager = require('socket_manager').create(io);
+global.socket_manager = require('socket_manager').create(io);
 
 // use xhr-polling as the transport for socket.io
 io.configure(function () {
@@ -57,75 +106,29 @@ io.configure(function () {
   io.set("polling duration", 10);
 });
 
-// respond to GET /home
-app.get('/home', function(request, response) {
-
-  // detect the http method uses so we can replicate it on redirects
-  var method = request.headers['x-forwarded-proto'] || 'http';
-
-  // if we have facebook auth credentials
-  if (request.session.auth) {
-
-    // initialize facebook-client with the access token to gain access
-    // to helper methods for the REST api
-    var token = request.session.auth.facebook.accessToken;
-    facebook.getSessionByAccessToken(token)(function(session) {
-
-      // generate a uuid for socket association
-      var socket_id = uuid();
-
-      // query 4 friends and send them to the socket for this socket id
-      session.graphCall('/me/friends&limit=4')(function(result) {
-        result.data.forEach(function(friend) {
-          socket_manager.send(socket_id, 'friend', friend);
-        });
-      });
-
-      // query 16 photos and send them to the socket for this socket id
-      session.graphCall('/me/photos&limit=16')(function(result) {
-        result.data.forEach(function(photo) {
-          socket_manager.send(socket_id, 'photo', photo);
-        });
-      });
-
-      // query 4 likes and send them to the socket for this socket id
-      session.graphCall('/me/likes&limit=4')(function(result) {
-        result.data.forEach(function(like) {
-          socket_manager.send(socket_id, 'like', like);
-        });
-      });
-
-      // use fql to get a list of my friends that are using this app
-      session.restCall('fql.query', {
-        query: 'SELECT uid, name, is_app_user, pic_square FROM user WHERE uid in (SELECT uid2 FROM friend WHERE uid1 = me()) AND is_app_user = 1',
-        format: 'json'
-      })(function(result) {
-        result.forEach(function(friend) {
-          socket_manager.send(socket_id, 'friend_using_app', friend);
-        });
-      });
-
-      // get information about the app itself
-      session.graphCall('/' + process.env.FACEBOOK_APP_ID)(function(app) {
-
-        // render the home page
-        response.render('home.ejs', {
-          layout:   false,
-          token:    token,
-          app:      app,
-          user:     request.session.auth.facebook.user,
-          home:     method + '://' + request.headers.host + '/',
-          redirect: method + '://' + request.headers.host + request.url,
-          socket_id: socket_id
+io.set('authorization', function (data, accept) {
+    if (data.headers.cookie) {
+        data.cookie = parseCookie(data.headers.cookie);
+        data.sessionID = data.cookie['express.sid'];
+        // save the session store to the data object 
+        // (as required by the Session constructor)
+        data.sessionStore = sessionStore;
+        sessionStore.get(data.sessionID, function (err, session) {
+  
+            if (err) {
+                accept(err.message, false);
+            } else {
+                // create a session object, passing data as request and our
+                // just acquired session data
+                data.session = new Session(data, session);
+                accept(null, true);
+            }
         });
 
-      });
-    });
-
-  } else {
-
-    // not authenticated, redirect to / for everyauth to begin authentication
-    response.redirect('/');
-
-  }
+    } else {
+       return accept('No cookie transmitted.', false);
+    }
 });
+
+require('./controllers/home.js');
+require('./controllers/server_sockets.js');

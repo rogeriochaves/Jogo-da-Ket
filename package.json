@@ -6,6 +6,7 @@
     "ejs": "0.4.3",
     "everyauth": "0.2.18",
     "express": "2.4.6",
+    "connect": "1.0.0",
     "facebook-client": "1.3.0",
     "facebook": "0.0.3",
     "node-uuid": "1.2.0",

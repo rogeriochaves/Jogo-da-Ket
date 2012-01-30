@@ -1,0 +1,24 @@
+<html>
+<head>
+	<link rel="stylesheet" type="text/css" href="/stylesheets/application.css">
+</head>
+<body>
+<%- body %>
+<script type="text/javascript" charset="utf-8" src="/scripts/jquery.min.js"></script>
+<script type="text/javascript" charset="utf-8" src="/socket.io/socket.io.js"></script>
+<script type="text/javascript">
+	// inicializando variáveis
+	var player_nome = '<%= typeof user != 'undefined' ? user.name : '' %>'
+	  , player_uid = '<%= typeof user != 'undefined' ? user.id : '' %>'
+	  , player_pid = -1
+	  , sid
+	  , sua_vez = false
+	  , qtd_jogadores = 0
+	  , cartas_mesa = [];
+</script>
+<script type="text/javascript" charset="utf-8" src="/scripts/client_sockets.js"></script>
+<script type="text/javascript" charset="utf-8" src="/scripts/init.js"></script>
+<script type="text/javascript" charset="utf-8" src="/scripts/controles.js"></script>
+
+</body>
+</html>
