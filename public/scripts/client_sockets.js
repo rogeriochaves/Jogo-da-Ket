@@ -138,6 +138,18 @@ var finalizar = function(pid){
 	$('.mesa-principal').prepend('<div class="fim">'+msg+'<a href="/">Sair</a></div>');
 }
 
+// verifica se o jogo pode ser iniciado
+var pode_iniciar_jogo = function(){
+	var qtd_jogadores = $('.dentro-sala .jogadores li').length;
+	if (qtd_jogadores > 1 && lider) {
+		$('#lnkIniciarJogo').show(); // mostra botão de iniciar jogo
+	}else if(qtd_jogadores == 1){
+		lider = true;
+	}else{
+		$('#lnkIniciarJogo').hide();
+	}
+}
+
 // ao receber uma mensagem de outro jogador, adiciona ela ao chat
 socket.on('message', function(nome, msg){
 	add_msg(nome, msg);
@@ -160,6 +172,7 @@ socket.on('salas online', function(salas){
 // adiciona um jogador na sala
 socket.on('entrou na sala', function(player){
 	$('.dentro-sala .jogadores').append($('<li>').attr({uid: player.uid}).html(player.nome));
+	pode_iniciar_jogo()
 });
 
 // tira um jogador da sala
@@ -175,7 +188,7 @@ $('#bttCriarSala').click(function(){
 		$('.fora-sala').hide(); // esconde a lista de salas
 		$('.dentro-sala, #chat').show(); // mostra a sala e o chat
 		$('.dentro-sala .jogadores').html('').append($('<li>').attr({uid: player_uid}).html(player_nome)); // se adiciona dentro da sala
-		$('#lnkIniciarJogo').show(); // mostra botão de iniciar jogo
+		lider = true; // já que ele criou a sala, ele é o líder da sala
 	});
 	return false;
 });
@@ -304,9 +317,17 @@ $('.jogador .mesa li').live('click', function(){ // ao clicar pra jogar uma cart
 	  , este = $(this)
 	  , baixo = este.parent().hasClass('baixo')
 	  , carta
-	  , cid;
+	  , cid = 0;
 	if(baixo){ // não se sabe qual é a carta
-		cid = este.index();
+		var achou = false;
+		este.attr({'selected': 'selected'});
+		$('.jogador .mesa .baixo li').each(function(){
+			if(!achou && $(this).attr('selected') == 'selected'){
+				achou = true;
+			}else if(!achou){
+				cid++;
+			}
+		});
 	}else{
 		cid = este.attr('cid');
 		carta = este.attr('carta');
@@ -329,12 +350,12 @@ $('.jogador .mesa li').live('click', function(){ // ao clicar pra jogar uma cart
 	}
 	sua_vez = false;
 	socket.emit('jogar', cid, 'mesa '+(baixo ? 'baixo' : 'cima'), function(pass, carta){ // enviar informações da jogada
-		if(baixo){
+		if(typeof carta != 'undefined'){
 			este.attr({cid: carta.cid, carta: carta.carta});
 		}
 		var carta_elem = este.clone().appendTo('body').css({position: 'absolute', top: este.offset().top, left: este.offset().left});
 		este.addClass('vazio').removeAttr('carta');
-		if(baixo){
+		if(typeof carta != 'undefined'){
 			carta_elem.removeClass('back').addClass(carta.carta);
 		}else{
 			$('.jogador .mesa .baixo li:eq('+este.index()+')').css({position: 'relative', zIndex: 1});
